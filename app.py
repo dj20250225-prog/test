@@ -1,3 +1,4 @@
+import random
 import time
 import streamlit as st
 
@@ -5,49 +6,91 @@ import streamlit as st
 # 1. 페이지 기본 설정 및 스타일 정의
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="⏱️ 나만의 반응형 타이머",
-    page_icon="⏱️",
+    page_title="자리 배치 테스트 버전",
+    page_icon="🏫",
     layout="centered"
 )
 
-# 커스텀 CSS (반응형 글자 크기 clamp 적용 및 카드 레이아웃 스타일)
+# 커스텀 CSS (교실 칠판, 책상 카드, 반응형 레이아웃 스타일)
 st.markdown("""
     <style>
-    /* 메인 타이머 카드 스타일 */
-    .timer-card {
-        background-color: #ffffff;
-        border-radius: 20px;
-        padding: 25px 20px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
-        border: 2px solid #eef2f6;
+    /* 칠판 스타일 */
+    .blackboard {
+        background-color: #2e5a44;
+        color: #ffffff;
+        border: 8px solid #8d5b4c;
+        border-radius: 12px;
+        padding: 15px;
         text-align: center;
-        margin-bottom: 20px;
-    }
-    
-    /* clamp(최소크기, 권장크기, 최대크기)를 활용한 반응형 시간 글꼴 */
-    .timer-text {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: clamp(3rem, 12vw, 5.5rem);
-        font-weight: 800;
-        color: #2C3E50;
-        line-height: 1.1;
-        margin: 15px 0;
+        font-size: clamp(1.2rem, 4vw, 1.8rem);
+        font-weight: bold;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         letter-spacing: 2px;
     }
 
-    /* 서브 타이틀 스타일 */
-    .timer-subtitle {
-        color: #7F8C8D;
-        font-size: clamp(0.9rem, 3vw, 1.1rem);
-        margin-bottom: 10px;
+    /* 교탁 표시 스타일 */
+    .teacher-desk {
+        width: 120px;
+        margin: -15px auto 20px auto;
+        background-color: #d7ccc8;
+        border: 2px solid #8d6e63;
+        border-radius: 6px;
+        text-align: center;
+        font-size: 0.85rem;
+        color: #4e342e;
+        padding: 4px;
+        font-weight: bold;
     }
 
-    /* 버튼 스타일 통일 및 모바일 터치 영역 확장 */
+    /* 책상 카드 스타일 */
+    .seat-card {
+        background-color: #ffffff;
+        border-radius: 12px;
+        padding: 12px 5px;
+        text-align: center;
+        border: 2px solid #e0e0e0;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.05);
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+    }
+
+    /* 배정 완료된 책상 스타일 */
+    .seat-card-assigned {
+        background-color: #e8f5e9;
+        border-color: #66bb6a;
+        box-shadow: 0 4px 8px rgba(76, 175, 80, 0.15);
+    }
+
+    /* 책상 번호 (자리 라벨) */
+    .seat-label {
+        font-size: clamp(0.7rem, 2vw, 0.85rem);
+        color: #78909c;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    /* 학생 번호 표시 */
+    .student-number {
+        font-size: clamp(1.1rem, 3.5vw, 1.5rem);
+        font-weight: 800;
+        color: #1b5e20;
+    }
+
+    /* 미배정 빈 상태 표시 */
+    .empty-number {
+        font-size: clamp(1.1rem, 3.5vw, 1.5rem);
+        font-weight: bold;
+        color: #cfd8dc;
+    }
+
+    /* 버튼 스타일 조정 */
     .stButton > button {
         width: 100%;
-        border-radius: 12px;
+        border-radius: 10px;
         height: 2.8rem;
-        font-weight: 600;
+        font-weight: bold;
+        font-size: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -55,182 +98,107 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 2. 세션 상태(st.session_state) 초기화
 # -----------------------------------------------------------------------------
-# 타이머의 상태: 'STOPPED'(정지), 'RUNNING'(실행중), 'PAUSED'(일시정지), 'FINISHED'(완료)
-if "timer_state" not in st.session_state:
-    st.session_state.timer_state = "STOPPED"
+# seats: 25개 자리에 배정된 학생 번호 리스트 (None이면 미배정)
+if "seats" not in st.session_state:
+    st.session_state.seats = [None] * 25
 
-if "total_seconds" not in st.session_state:
-    st.session_state.total_seconds = 0
-
-if "remaining_seconds" not in st.session_state:
-    st.session_state.remaining_seconds = 0.0
-
-if "end_time" not in st.session_state:
-    st.session_state.end_time = 0.0
-
-if "input_min" not in st.session_state:
-    st.session_state.input_min = 0
-
-if "input_sec" not in st.session_state:
-    st.session_state.input_sec = 0
+# status: 'IDLE' (시작 전), 'ASSIGNING' (배정 진행 중), 'FINISHED' (배정 완료)
+if "status" not in st.session_state:
+    st.session_state.status = "IDLE"
 
 # -----------------------------------------------------------------------------
-# 3. 타이머 제어 함수 정의
+# 3. 자리 배정 함수 정의
 # -----------------------------------------------------------------------------
-def set_preset_time(minutes):
-    """빠른 설정 버튼 클릭 시 분/초를 자동 입력하는 함수"""
-    if st.session_state.timer_state == "STOPPED":
-        st.session_state.input_min = minutes
-        st.session_state.input_sec = 0
-
-def start_timer():
-    """타이머를 시작하는 함수"""
-    total = (st.session_state.input_min * 60) + st.session_state.input_sec
-    if total <= 0:
-        st.warning("⚠️ 0분 0초 이상 시간을 설정해 주세요!")
+def assign_seats():
+    """1~25번 학생을 무작위로 25개 자리에 배치하는 함수"""
+    # 진행 중 중복 클릭 방지
+    if st.session_state.status == "ASSIGNING":
         return
+
+    st.session_state.status = "ASSIGNING"
     
-    st.session_state.total_seconds = total
-    st.session_state.remaining_seconds = float(total)
-    # time.monotonic()을 기준으로 타이머가 종료되는 시각을 정확히 저장
-    st.session_state.end_time = time.monotonic() + total
-    st.session_state.timer_state = "RUNNING"
-
-def pause_timer():
-    """타이머를 일시정지하는 함수"""
-    if st.session_state.timer_state == "RUNNING":
-        # 현재 시점 기준 남아있는 정확한 시간 계산 후 저장
-        st.session_state.remaining_seconds = max(0.0, st.session_state.end_time - time.monotonic())
-        st.session_state.timer_state = "PAUSED"
-
-def resume_timer():
-    """일시정지된 타이머를 다시 계속하는 함수"""
-    if st.session_state.timer_state == "PAUSED":
-        # 현재 시점 기준으로 남은 시간을 반영하여 종료 예정 시각 재설정
-        st.session_state.end_time = time.monotonic() + st.session_state.remaining_seconds
-        st.session_state.timer_state = "RUNNING"
-
-def reset_timer():
-    """타이머를 초기화하는 함수"""
-    st.session_state.timer_state = "STOPPED"
-    st.session_state.total_seconds = 0
-    st.session_state.remaining_seconds = 0.0
-    st.session_state.end_time = 0.0
-
-# -----------------------------------------------------------------------------
-# 4. 앱 화면 레이아웃 구성
-# -----------------------------------------------------------------------------
-st.title("⏱️ 나만의 반응형 타이머")
-
-# 타이머 실행 중에는 입력창 수정 불가 처리 (is_disabled)
-is_disabled = st.session_state.timer_state in ["RUNNING", "PAUSED"]
-
-# [빠른 시간 설정 버튼 섹션]
-st.write("⚡ **빠른 시간 설정**")
-q_col1, q_col2, q_col3, q_col4 = st.columns(4)
-
-with q_col1:
-    st.button("1분", on_click=set_preset_time, args=(1,), disabled=is_disabled, use_container_width=True)
-with q_col2:
-    st.button("3분", on_click=set_preset_time, args=(3,), disabled=is_disabled, use_container_width=True)
-with q_col3:
-    st.button("5분", on_click=set_preset_time, args=(5,), disabled=is_disabled, use_container_width=True)
-with q_col4:
-    st.button("10분", on_click=set_preset_time, args=(10,), disabled=is_disabled, use_container_width=True)
-
-st.write("")
-
-# [분/초 직접 입력 섹션]
-col_min, col_sec = st.columns(2)
-with col_min:
-    st.number_input(
-        "분 (Minutes)",
-        min_value=0,
-        max_value=999,
-        key="input_min",
-        disabled=is_disabled,
-        step=1
-    )
-with col_sec:
-    st.number_input(
-        "초 (Seconds)",
-        min_value=0,
-        max_value=59,
-        key="input_sec",
-        disabled=is_disabled,
-        step=1
-    )
-
-st.divider()
-
-# -----------------------------------------------------------------------------
-# 5. st.fragment를 이용한 0.1초 단위 독립 화면 갱신
-# -----------------------------------------------------------------------------
-@st.fragment(run_every=0.1)
-def render_timer():
-    """전체 페이지 재실행 없이 타이머 부분만 독립적으로 업데이트하는 프래그먼트"""
+    # 1부터 25까지 번호 생성 후 무작위 섞기
+    students = list(range(1, 26))
+    random.shuffle(students)
     
-    # 1) 실행 상태 시간 업데이트 계산
-    if st.session_state.timer_state == "RUNNING":
-        current = time.monotonic()
-        remaining = st.session_state.end_time - current
-        
-        if remaining <= 0:
-            st.session_state.remaining_seconds = 0.0
-            st.session_state.timer_state = "FINISHED"
-            st.rerun() # 완료 시 상태 갱신을 위해 rerun 호출
-        else:
-            st.session_state.remaining_seconds = remaining
+    # 배치 애니메이션 효과 (시간차를 두고 한 명씩 배치)
+    for i in range(25):
+        st.session_state.seats[i] = students[i]
+        time.sleep(0.05)  # 0.05초 간격으로 한 자리씩 배정 연출
 
-    # 2) 시간 계산 (분:초 형식)
-    rem_total_sec = int(st.session_state.remaining_seconds + 0.999) # 올림 시각화로 깔끔한 초 표시
-    display_min = rem_total_sec // 60
-    display_sec = rem_total_sec % 60
-    time_str = f"{display_min:02d}:{display_sec:02d}"
+    st.session_state.status = "FINISHED"
 
-    # 3) 진행률(Progress Bar) 계산
-    progress_val = 0.0
-    if st.session_state.total_seconds > 0:
-        ratio = st.session_state.remaining_seconds / st.session_state.total_seconds
-        progress_val = max(0.0, min(1.0, ratio))
+def reset_seats():
+    """자리 배정 상태를 초기화하고 무작위로 다시 배치하는 함수"""
+    # 진행 중 중복 클릭 방지
+    if st.session_state.status == "ASSIGNING":
+        return
 
-    # 4) 타이머 UI 메인 카드 화면 출력
-    st.markdown(f"""
-        <div class="timer-card">
-            <div class="timer-subtitle">남은 시간</div>
-            <div class="timer-text">{time_str}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 진행률 막대
-    st.progress(progress_val)
-
-    # 5) 상태별 안내 메시지 및 효과
-    if st.session_state.timer_state == "FINISHED":
-        st.success("🎉 시간이 종료되었습니다!")
-        st.balloons()
-    elif st.session_state.timer_state == "PAUSED":
-        st.info("⏸️ 타이머가 일시정지 상태입니다.")
-
-# 프래그먼트 함수 실행
-render_timer()
-
-st.write("")
+    # 모든 자리 초기화 후 즉시 재배정 실행
+    st.session_state.seats = [None] * 25
+    st.session_state.status = "IDLE"
+    assign_seats()
 
 # -----------------------------------------------------------------------------
-# 6. 제어 버튼 섹션 (시작 / 일시정지 / 계속 / 초기화)
+# 4. 앱 화면 헤더 및 제어 버튼 구성
 # -----------------------------------------------------------------------------
+st.title("🏫 자리 배치 테스트 버전")
+
+# [시작 / 다시 배치 버튼 영역]
 btn_col1, btn_col2 = st.columns(2)
 
+is_running = st.session_state.status == "ASSIGNING"
+
 with btn_col1:
-    if st.session_state.timer_state == "STOPPED":
-        st.button("▶️ 시작", type="primary", use_container_width=True, on_click=start_timer)
-    elif st.session_state.timer_state == "RUNNING":
-        st.button("⏸️ 일시정지", type="secondary", use_container_width=True, on_click=pause_timer)
-    elif st.session_state.timer_state == "PAUSED":
-        st.button("▶️ 계속", type="primary", use_container_width=True, on_click=resume_timer)
-    elif st.session_state.timer_state == "FINISHED":
-        st.button("▶️ 시작", type="primary", use_container_width=True, on_click=start_timer, disabled=True)
+    if st.session_state.status == "IDLE":
+        st.button("▶️ 시작", type="primary", use_container_width=True, on_click=assign_seats, disabled=is_running)
+    else:
+        st.button("▶️ 시작", type="primary", use_container_width=True, disabled=True)
 
 with btn_col2:
-    st.button("🔄 초기화", use_container_width=True, on_click=reset_timer)
+    st.button("🔄 다시", use_container_width=True, on_click=reset_seats, disabled=is_running)
+
+st.write("")
+
+# -----------------------------------------------------------------------------
+# 5. 교실 배치 화면 (칠판 + 25개 자리)
+# -----------------------------------------------------------------------------
+# [칠판 디자인]
+st.markdown('<div class="blackboard">📋 칠 판 (Front)</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-desk">교 탁</div>', unsafe_allow_html=True)
+
+# [25개 자리 5x5 교실 형태 배치]
+# 5행 5열 구조 생성
+TOTAL_SEATS = 25
+COLS_PER_ROW = 5
+
+for row in range(5):
+    cols = st.columns(COLS_PER_ROW)
+    for col in range(COLS_PER_ROW):
+        seat_index = row * COLS_PER_ROW + col
+        student_num = st.session_state.seats[seat_index]
+        
+        with cols[col]:
+            # 자리 배정 여부에 따른 카드의 CSS 클래스 및 텍스트 선택
+            if student_num is not None:
+                card_html = f"""
+                <div class="seat-card seat-card-assigned">
+                    <div class="seat-label">자리 {seat_index + 1}</div>
+                    <div class="student-number">{student_num}번</div>
+                </div>
+                """
+            else:
+                card_html = f"""
+                <div class="seat-card">
+                    <div class="seat-label">자리 {seat_index + 1}</div>
+                    <div class="empty-number">-</div>
+                </div>
+                """
+            st.markdown(card_html, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# 6. 완료 상태 및 알림 메시지 표시
+# -----------------------------------------------------------------------------
+if st.session_state.status == "FINISHED":
+    st.success("🎉 자리 배정이 성공적으로 완료되었습니다!")
+    st.balloons()
