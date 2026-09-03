@@ -1,204 +1,83 @@
+import hashlib
 import random
 import time
+from datetime import datetime, date
 import streamlit as st
 
-# -----------------------------------------------------------------------------
-# 1. 페이지 기본 설정 및 스타일 정의
-# -----------------------------------------------------------------------------
+# ==========================================
+# 1. 페이지 기본 설정 (밝고 깔끔한 레이아웃)
+# ==========================================
 st.set_page_config(
-    page_title="자리 배치 테스트 버전",
-    page_icon="🏫",
-    layout="centered"
+    page_title="오늘의 운세",
+    page_icon="🔮",
+    layout="centered"  # 중앙 정렬 방식으로 모바일/PC 모니터 모두 대응
 )
 
-# 커스텀 CSS (교실 칠판, 책상 카드, 반응형 레이아웃 스타일)
-st.markdown("""
-    <style>
-    /* 칠판 스타일 */
-    .blackboard {
-        background-color: #2e5a44;
-        color: #ffffff;
-        border: 8px solid #8d5b4c;
-        border-radius: 12px;
-        padding: 15px;
-        text-align: center;
-        font-size: clamp(1.2rem, 4vw, 1.8rem);
-        font-weight: bold;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-        letter-spacing: 2px;
-    }
+# ==========================================
+# 2. 운세 데이터 정의 (파이썬 리스트 활용)
+# ==========================================
+MONEY_LUCK = [
+    "뜻밖의 용돈이나 소소한 재물이 들어올 수 있는 매우 운 좋은 날입니다!",
+    "불필요한 지출을 줄이면 저녁쯤 작은 기쁨이 찾아옵니다.",
+    "충동구입을 주의하세요. 꼭 필요한 것만 구매하는 지혜가 필요합니다.",
+    "투자나 통장 정리를 하기에 아주 적절한 날입니다.",
+    "주변 사람에게 작은 선물을 베풀면 더 큰 재물운으로 돌아옵니다."
+]
 
-    /* 교탁 표시 스타일 */
-    .teacher-desk {
-        width: 120px;
-        margin: -15px auto 20px auto;
-        background-color: #d7ccc8;
-        border: 2px solid #8d6e63;
-        border-radius: 6px;
-        text-align: center;
-        font-size: 0.85rem;
-        color: #4e342e;
-        padding: 4px;
-        font-weight: bold;
-    }
+LOVE_LUCK = [
+    "마음속에 두고 있던 사람에게 따뜻한 안부 인사를 건네보기 좋은 날입니다.",
+    "솔직하고 진심 어린 대화가 상대방의 마음을 움직입니다.",
+    "새로운 인연을 만나거나 친구와의 우정이 더욱 깊어지는 하루입니다.",
+    "작은 오해가 생길 수 있으니 상대방의 말을 끝까지 들어주세요.",
+    "스스로를 사랑하는 시간을 가져보세요. 당신의 매력이 돋보이는 날입니다."
+]
 
-    /* 책상 카드 스타일 */
-    .seat-card {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 12px 5px;
-        text-align: center;
-        border: 2px solid #e0e0e0;
-        box-shadow: 0 3px 6px rgba(0,0,0,0.05);
-        margin-bottom: 12px;
-        transition: all 0.3s ease;
-    }
+LUCKY_ITEMS = ["파란색 연필", "따뜻한 아메리카노", "노란색 포스트잇", "무선 이어폰", "푹신한 쿠션", "초록색 텀블러"]
+LUCKY_COLORS = ["파스텔 핑크", "스카이 블루", "레몬 옐로우", "민트 그린", "라벤더"]
 
-    /* 배정 완료된 책상 스타일 */
-    .seat-card-assigned {
-        background-color: #e8f5e9;
-        border-color: #66bb6a;
-        box-shadow: 0 4px 8px rgba(76, 175, 80, 0.15);
-    }
-
-    /* 책상 번호 (자리 라벨) */
-    .seat-label {
-        font-size: clamp(0.7rem, 2vw, 0.85rem);
-        color: #78909c;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
-
-    /* 학생 번호 표시 */
-    .student-number {
-        font-size: clamp(1.1rem, 3.5vw, 1.5rem);
-        font-weight: 800;
-        color: #1b5e20;
-    }
-
-    /* 미배정 빈 상태 표시 */
-    .empty-number {
-        font-size: clamp(1.1rem, 3.5vw, 1.5rem);
-        font-weight: bold;
-        color: #cfd8dc;
-    }
-
-    /* 버튼 스타일 조정 */
-    .stButton > button {
-        width: 100%;
-        border-radius: 10px;
-        height: 2.8rem;
-        font-weight: bold;
-        font-size: 1rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# -----------------------------------------------------------------------------
-# 2. 세션 상태(st.session_state) 초기화
-# -----------------------------------------------------------------------------
-# seats: 25개 자리에 배정된 학생 번호 리스트 (None이면 미배정)
-if "seats" not in st.session_state:
-    st.session_state.seats = [None] * 25
-
-# status: 'IDLE' (시작 전), 'ASSIGNING' (배정 진행 중), 'FINISHED' (배정 완료)
-if "status" not in st.session_state:
-    st.session_state.status = "IDLE"
-
-# -----------------------------------------------------------------------------
-# 3. 자리 배정 함수 정의
-# -----------------------------------------------------------------------------
-def assign_seats():
-    """1~25번 학생을 무작위로 25개 자리에 배치하는 함수"""
-    # 진행 중 중복 클릭 방지
-    if st.session_state.status == "ASSIGNING":
-        return
-
-    st.session_state.status = "ASSIGNING"
+# ==========================================
+# 3. 고정된 운세 생성 함수 (결과값 유지를 위함)
+# ==========================================
+def generate_fortune(birth_date: date) -> dict:
+    """
+    사용자의 생년월일과 '오늘 날짜'를 조합하여 매일 변경되지만,
+    같은 날 안에서는 아무리 새로고침해도 동일한 결과가 나오도록 시드(Seed)를 설정합니다.
+    """
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    seed_string = f"{birth_date}_{today_str}"
     
-    # 1부터 25까지 번호 생성 후 무작위 섞기
-    students = list(range(1, 26))
-    random.shuffle(students)
+    # 해시 함수(MD5)를 사용하여 숫자로 변환 후 랜덤 시드로 설정
+    seed_number = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
+    rng = random.Random(seed_number)
     
-    # 배치 애니메이션 효과 (시간차를 두고 한 명씩 배치)
-    for i in range(25):
-        st.session_state.seats[i] = students[i]
-        time.sleep(0.05)  # 0.05초 간격으로 한 자리씩 배정 연출
+    return {
+        "score": rng.randint(60, 100),  # 60~100점 사이의 종합 점수
+        "money": rng.choice(MONEY_LUCK),
+        "love": rng.choice(LOVE_LUCK),
+        "item": rng.choice(LUCKY_ITEMS),
+        "color": rng.choice(LUCKY_COLORS),
+        "number": rng.randint(1, 99)
+    }
 
-    st.session_state.status = "FINISHED"
+# ==========================================
+# 4. st.fragment를 활용한 실시간 상태 업데이트
+# ==========================================
+@st.fragment(run_every="5s")
+def render_live_header():
+    """
+    5초마다 앱 전체를 다시 그리지 않고 이 부분만 실시간으로 업데이트합니다.
+    앱 실행 중 운세 결과가 무작위로 변경되는 것을 방지하면서 실시간성을 유지합니다.
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.caption(f"⏱️ 실시간 서버 시간: {now} (5초마다 자동 갱신)")
 
-def reset_seats():
-    """자리 배정 상태를 초기화하고 무작위로 다시 배치하는 함수"""
-    # 진행 중 중복 클릭 방지
-    if st.session_state.status == "ASSIGNING":
-        return
+# ==========================================
+# 5. 세션 상태(Session State) 초기화
+# ==========================================
+if "is_loading" not in st.session_state:
+    st.session_state.is_loading = False
 
-    # 모든 자리 초기화 후 즉시 재배정 실행
-    st.session_state.seats = [None] * 25
-    st.session_state.status = "IDLE"
-    assign_seats()
+if "fortune_data" not in st.session_state:
+    st.session_state.fortune_data = None
 
-# -----------------------------------------------------------------------------
-# 4. 앱 화면 헤더 및 제어 버튼 구성
-# -----------------------------------------------------------------------------
-st.title("🏫 자리 배치 테스트 버전")
-
-# [시작 / 다시 배치 버튼 영역]
-btn_col1, btn_col2 = st.columns(2)
-
-is_running = st.session_state.status == "ASSIGNING"
-
-with btn_col1:
-    if st.session_state.status == "IDLE":
-        st.button("▶️ 시작", type="primary", use_container_width=True, on_click=assign_seats, disabled=is_running)
-    else:
-        st.button("▶️ 시작", type="primary", use_container_width=True, disabled=True)
-
-with btn_col2:
-    st.button("🔄 다시", use_container_width=True, on_click=reset_seats, disabled=is_running)
-
-st.write("")
-
-# -----------------------------------------------------------------------------
-# 5. 교실 배치 화면 (칠판 + 25개 자리)
-# -----------------------------------------------------------------------------
-# [칠판 디자인]
-st.markdown('<div class="blackboard">📋 칠 판 (Front)</div>', unsafe_allow_html=True)
-st.markdown('<div class="teacher-desk">교 탁</div>', unsafe_allow_html=True)
-
-# [25개 자리 5x5 교실 형태 배치]
-# 5행 5열 구조 생성
-TOTAL_SEATS = 25
-COLS_PER_ROW = 5
-
-for row in range(5):
-    cols = st.columns(COLS_PER_ROW)
-    for col in range(COLS_PER_ROW):
-        seat_index = row * COLS_PER_ROW + col
-        student_num = st.session_state.seats[seat_index]
-        
-        with cols[col]:
-            # 자리 배정 여부에 따른 카드의 CSS 클래스 및 텍스트 선택
-            if student_num is not None:
-                card_html = f"""
-                <div class="seat-card seat-card-assigned">
-                    <div class="seat-label">자리 {seat_index + 1}</div>
-                    <div class="student-number">{student_num}번</div>
-                </div>
-                """
-            else:
-                card_html = f"""
-                <div class="seat-card">
-                    <div class="seat-label">자리 {seat_index + 1}</div>
-                    <div class="empty-number">-</div>
-                </div>
-                """
-            st.markdown(card_html, unsafe_allow_html=True)
-
-# -----------------------------------------------------------------------------
-# 6. 완료 상태 및 알림 메시지 표시
-# -----------------------------------------------------------------------------
-if st.session_state.status == "FINISHED":
-    st.success("🎉 자리 배정이 성공적으로 완료되었습니다!")
-    st.balloons()
+# ==========================================
